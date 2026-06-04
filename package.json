@@ -1,0 +1,24 @@
+{
+  "name": "koishi-plugin-imgdraw-selfuse",
+  "description": "修改自ai-image的画图插件,支持openai兼容api,增加base64转换自由开启，增加图文合并消息图生图，增加预置提示词",
+  "version": "0.1.1",
+  "main": "lib/index.js",
+  "typings": "lib/index.d.ts",
+  "files": [
+    "lib",
+    "dist"
+  ],
+  "license": "MIT",
+  "keywords": [
+    "chatbot",
+    "koishi",
+    "plugin"
+  ],
+  "peerDependencies": {
+    "koishi": "^4.18.7"
+  },
+  "dependencies": {
+    "axios": "^1.16.1",
+    "yaml": "^2.9.0"
+  }
+}
