@@ -1,11 +1,18 @@
-# koishi-plugin-ai-image
+# koishi-plugin-imagedraw-selfuse
 
 支持多模型、多 API 负载均衡的 Koishi AI 绘图插件。
+修改自[ai-image](https://github.com/Minecraft-1314/koishi-plugin-ai-image#readme)的画图插件
+增加图生图base64转换（因为部分api无法读取URL）
+增加图片压缩（因为base64编码过大可能导致超时或请求失败）
+增加预置提示词（这样常用提示词模版就不用反复复制粘贴）
+增加副模型功能（鄙人使用时想同时能用novelai和GPTimage2，但是不想老是更改插件配置）
+欢迎大佬们使用
+
 
 ## 安装
 
 ```bash
-npm install koishi-plugin-ai-image
+npm install koishi-plugin-imagedraw-selfuse
 ```
 
 > 图片压缩需额外安装 sharp：
