@@ -16,15 +16,59 @@ interface BlacklistEntry {
     id: string;
     createdAt: Date;
 }
+export declare const ModelConfig: Schema<Schemastery.ObjectS<{
+    model: Schema<string, string>;
+    txt2imgModel: Schema<string, string>;
+    img2imgModel: Schema<string, string>;
+    apiKey: Schema<string, string>;
+    baseUrl: Schema<string, string>;
+    subModels: Schema<Schemastery.ObjectS<{
+        enable: Schema<boolean, boolean>;
+        name: Schema<string, string>;
+        model: Schema<string, string>;
+        apiKey: Schema<string, string>;
+        baseUrl: Schema<string, string>;
+        txt2imgCommand: Schema<string, string>;
+        img2imgCommand: Schema<string, string>;
+    }>[], Schemastery.ObjectT<{
+        enable: Schema<boolean, boolean>;
+        name: Schema<string, string>;
+        model: Schema<string, string>;
+        apiKey: Schema<string, string>;
+        baseUrl: Schema<string, string>;
+        txt2imgCommand: Schema<string, string>;
+        img2imgCommand: Schema<string, string>;
+    }>[]>;
+}>, Schemastery.ObjectT<{
+    model: Schema<string, string>;
+    txt2imgModel: Schema<string, string>;
+    img2imgModel: Schema<string, string>;
+    apiKey: Schema<string, string>;
+    baseUrl: Schema<string, string>;
+    subModels: Schema<Schemastery.ObjectS<{
+        enable: Schema<boolean, boolean>;
+        name: Schema<string, string>;
+        model: Schema<string, string>;
+        apiKey: Schema<string, string>;
+        baseUrl: Schema<string, string>;
+        txt2imgCommand: Schema<string, string>;
+        img2imgCommand: Schema<string, string>;
+    }>[], Schemastery.ObjectT<{
+        enable: Schema<boolean, boolean>;
+        name: Schema<string, string>;
+        model: Schema<string, string>;
+        apiKey: Schema<string, string>;
+        baseUrl: Schema<string, string>;
+        txt2imgCommand: Schema<string, string>;
+        img2imgCommand: Schema<string, string>;
+    }>[]>;
+}>>;
 export declare const BaseConfig: Schema<Schemastery.ObjectS<{
     debug: Schema<boolean, boolean>;
     apiStrategy: Schema<"sequence" | "roundrobin", "sequence" | "roundrobin">;
     timeout: Schema<number, number>;
     rateLimit: Schema<number, number>;
     imgWaitTime: Schema<number, number>;
-    model: Schema<string, string>;
-    txt2imgModel: Schema<string, string>;
-    img2imgModel: Schema<string, string>;
     maxImages: Schema<number, number>;
     enableImgCompress: Schema<boolean, boolean>;
     imgMaxWidth: Schema<number, number>;
@@ -56,9 +100,6 @@ export declare const BaseConfig: Schema<Schemastery.ObjectS<{
     timeout: Schema<number, number>;
     rateLimit: Schema<number, number>;
     imgWaitTime: Schema<number, number>;
-    model: Schema<string, string>;
-    txt2imgModel: Schema<string, string>;
-    img2imgModel: Schema<string, string>;
     maxImages: Schema<number, number>;
     enableImgCompress: Schema<boolean, boolean>;
     imgMaxWidth: Schema<number, number>;
@@ -222,14 +263,34 @@ export declare const MessageConfig: Schema<Schemastery.ObjectS<{
     }>>;
 }>>;
 export declare const Config: Schema<Schemastery.ObjectS<{
+    model: Schema<string, string>;
+    txt2imgModel: Schema<string, string>;
+    img2imgModel: Schema<string, string>;
+    apiKey: Schema<string, string>;
+    baseUrl: Schema<string, string>;
+    subModels: Schema<Schemastery.ObjectS<{
+        enable: Schema<boolean, boolean>;
+        name: Schema<string, string>;
+        model: Schema<string, string>;
+        apiKey: Schema<string, string>;
+        baseUrl: Schema<string, string>;
+        txt2imgCommand: Schema<string, string>;
+        img2imgCommand: Schema<string, string>;
+    }>[], Schemastery.ObjectT<{
+        enable: Schema<boolean, boolean>;
+        name: Schema<string, string>;
+        model: Schema<string, string>;
+        apiKey: Schema<string, string>;
+        baseUrl: Schema<string, string>;
+        txt2imgCommand: Schema<string, string>;
+        img2imgCommand: Schema<string, string>;
+    }>[]>;
+}> | Schemastery.ObjectS<{
     debug: Schema<boolean, boolean>;
     apiStrategy: Schema<"sequence" | "roundrobin", "sequence" | "roundrobin">;
     timeout: Schema<number, number>;
     rateLimit: Schema<number, number>;
     imgWaitTime: Schema<number, number>;
-    model: Schema<string, string>;
-    txt2imgModel: Schema<string, string>;
-    img2imgModel: Schema<string, string>;
     maxImages: Schema<number, number>;
     enableImgCompress: Schema<boolean, boolean>;
     imgMaxWidth: Schema<number, number>;
@@ -323,14 +384,26 @@ export declare const Config: Schema<Schemastery.ObjectS<{
         blacklistListTitle: Schema<string, string>;
     }>>;
 }>, {
+    model: string;
+    txt2imgModel: string;
+    img2imgModel: string;
+    apiKey: string;
+    baseUrl: string;
+    subModels: Schemastery.ObjectT<{
+        enable: Schema<boolean, boolean>;
+        name: Schema<string, string>;
+        model: Schema<string, string>;
+        apiKey: Schema<string, string>;
+        baseUrl: Schema<string, string>;
+        txt2imgCommand: Schema<string, string>;
+        img2imgCommand: Schema<string, string>;
+    }>[];
+} & import("cosmokit", { with: { "resolution-mode": "import" } }).Dict & {
     debug: boolean;
     apiStrategy: "sequence" | "roundrobin";
     timeout: number;
     rateLimit: number;
     imgWaitTime: number;
-    model: string;
-    txt2imgModel: string;
-    img2imgModel: string;
     maxImages: number;
     enableImgCompress: boolean;
     imgMaxWidth: number;
@@ -352,7 +425,7 @@ export declare const Config: Schema<Schemastery.ObjectS<{
     txt2imgPrompt: string;
     img2imgPrompt: string;
     blacklistAdmins: string[];
-} & import("cosmokit", { with: { "resolution-mode": "import" } }).Dict & {
+} & {
     enablePresets: boolean;
     presets: Schemastery.ObjectT<{
         enable: Schema<boolean, boolean>;

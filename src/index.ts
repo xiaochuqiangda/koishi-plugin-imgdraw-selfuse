@@ -41,12 +41,35 @@ interface BlacklistEntry {
 const PresetItem = Schema.object({
   enable: Schema.boolean().default(true).description('启用此预置提示词'),
   text: Schema.string().default('').description('预置提示词文本（将自动添加到 prompt 前）'),
-  command: Schema.string().default('').description('触发指令（如 draw0，留空则自动生成 drawN）'),
+  command: Schema.string().default('').description('触发指令（如 draw0，留空则默认使用 presetN，N 为序号）'),
   keyword: Schema.string().default('').description('匹配关键词（如 猫娘，留空则不启用关键词匹配）'),
   enableKeywordMatch: Schema.boolean().default(false).description('启用关键词匹配（用户 prompt 包含关键词时自动添加）'),
 }).description('预置提示词配置项')
 
-// ==================== 独立大类 1：AI 绘图插件配置 ====================
+// ==================== 独立大类 1：模型配置项 ====================
+// 副模型单项配置
+const SubModelItem = Schema.object({
+  enable: Schema.boolean().default(true).description('启用此副模型'),
+  name: Schema.string().default('').description('副模型名称（仅用于标识，如"二次元模型"）'),
+  model: Schema.string().default('').description('模型名称（如 gpt-4o-mini）'),
+  apiKey: Schema.string().default('').description('API Key（留空则使用主模型的 API Key）'),
+  baseUrl: Schema.string().default('').description('接口地址（留空则使用主模型的接口地址）'),
+  txt2imgCommand: Schema.string().default('').description('文生图触发指令（如 draw2，留空则默认使用 drawN，N 为序号）'),
+  img2imgCommand: Schema.string().default('').description('图生图触发指令（如 imgdraw2，留空则默认使用 imgdrawN，N 为序号）'),
+}).description('副模型配置项')
+
+export const ModelConfig = Schema.object({
+  // 主模型配置
+  model: Schema.string().default('gpt-4o-mini').description('主模型名称'),
+  txt2imgModel: Schema.string().default('').description('主模型文生图专用模型，留空则使用主模型名称'),
+  img2imgModel: Schema.string().default('').description('主模型图生图专用模型，留空则使用主模型名称'),
+  apiKey: Schema.string().default('').description('主模型 API Key'),
+  baseUrl: Schema.string().default('').description('主模型接口地址，需符合 OpenAI 标准'),
+  // 副模型列表
+  subModels: Schema.array(SubModelItem).default([]).description('副模型列表（可添加多个，每个副模型拥有独立的模型名、API、触发指令）'),
+}).description('模型配置项')
+
+// ==================== 独立大类 2：AI 绘图插件配置 ====================
 export const BaseConfig = Schema.object({
   debug: Schema.boolean().default(false).description('开启调试模式，输出完整请求日志'),
   apiStrategy: Schema.union([
@@ -56,9 +79,6 @@ export const BaseConfig = Schema.object({
   timeout: Schema.number().default(300000).description('接口请求超时时间（毫秒）'),
   rateLimit: Schema.number().default(200).description('每小时调用次数限制'),
   imgWaitTime: Schema.number().default(60).description('图生图等待图片超时时间（秒）'),
-  model: Schema.string().default('gpt-4o-mini').description('通用模型名称'),
-  txt2imgModel: Schema.string().default('').description('文生图专用模型，留空则使用通用模型'),
-  img2imgModel: Schema.string().default('').description('图生图专用模型，留空则使用通用模型'),
   maxImages: Schema.number().default(5).description('图生图最大支持图片数量'),
 
   // ==================== 图片压缩配置 ====================
@@ -73,29 +93,31 @@ export const BaseConfig = Schema.object({
   enableImg2ImgBase64: Schema.boolean().default(true).description('图生图将图片转换为 base64（关闭则直接传 URL，部分 API 不需要 base64）'),
   // ==========================================================
 
+  // 多 API 负载均衡列表（兼容旧配置，与主模型/副模型独立）
   apiList: Schema.array(Schema.object({
     enable: Schema.boolean().default(true).description('启用此 API'),
     apiKey: Schema.string().description('API Key'),
     baseUrl: Schema.string().description('接口地址，需符合 OpenAI 标准'),
-  })).default([]).description('API 配置列表（支持多账号负载）'),
+  })).default([]).description('多 API 负载均衡列表（支持多账号负载，与主/副模型配置独立，优先级低于模型专属配置）'),
+
   enableTxt2Img: Schema.boolean().default(true).description('启用文生图'),
   enableImg2Img: Schema.boolean().default(true).description('启用图生图'),
-  command: Schema.string().default('draw').description('文生图主指令'),
-  aliases: Schema.array(String).default([]).description('文生图指令别名'),
-  img2imgCommand: Schema.string().default('imgdraw').description('图生图指令'),
-  img2imgAliases: Schema.array(String).default([]).description('图生图指令别名'),
+  command: Schema.string().default('draw').description('主模型文生图主指令'),
+  aliases: Schema.array(String).default([]).description('主模型文生图指令别名'),
+  img2imgCommand: Schema.string().default('imgdraw').description('主模型图生图指令'),
+  img2imgAliases: Schema.array(String).default([]).description('主模型图生图指令别名'),
   txt2imgPrompt: Schema.string().default('请严格遵循我的要求生成一张图片，不要询问或添加额外说明，直接输出图片。你可以使用联网功能获取最新的数据或信息。要求：{prompt}').description('文生图提示词模板'),
   img2imgPrompt: Schema.string().default('图片链接：{url} 请严格根据以下指令对提供的图片进行编辑或重绘，不要询问，直接输出结果。你可以使用联网功能获取最新的数据或信息。\n指令：{prompt}').description('图生图提示词模板'),
   blacklistAdmins: Schema.array(String).default([]).description('允许管理黑名单的 QQ 号列表'),
 }).description('AI 绘图插件配置')
 
-// ==================== 独立大类 2：预置提示词配置 ====================
+// ==================== 独立大类 3：预置提示词配置 ====================
 export const PresetConfig = Schema.object({
-  enablePresets: Schema.boolean().default(false).description('启用预置提示词功能（仅用于文生图）'),
-  presets: Schema.array(PresetItem).default([]).description('预置提示词列表（可添加多个，支持指令触发和关键词匹配）'),
+  enablePresets: Schema.boolean().default(false).description('启用预置提示词功能（指令触发仅主模型文生图可用，关键词匹配任何生图都可用）'),
+  presets: Schema.array(PresetItem).default([]).description('预置提示词列表（可添加多个，支持指令触发和关键词匹配。指令留空则默认使用 presetN，N 为序号）'),
 }).description('预置提示词配置')
 
-// ==================== 独立大类 3：提示文案配置 ====================
+// ==================== 独立大类 4：提示文案配置 ====================
 export const MessageConfig = Schema.object({
   messages: Schema.object({
     generating: Schema.string().default('⏳ 生成中...'),
@@ -125,8 +147,9 @@ export const MessageConfig = Schema.object({
   }).description('提示文案配置'),
 }).description('提示文案配置')
 
-// ==================== 组合配置（三个并列大类）====================
+// ==================== 组合配置（四个并列大类）====================
 export const Config = Schema.intersect([
+  ModelConfig,
   BaseConfig,
   PresetConfig,
   MessageConfig,
@@ -186,13 +209,52 @@ export async function apply(ctx: Context, cfg: any) {
     apiCallTimestamps.push(Date.now())
   }
 
-  function getApi(): any {
+  /**
+   * 获取 API 配置
+   * @param subModel 副模型配置（可选），如果提供则优先使用副模型的 API，否则使用主模型
+   */
+  function getApi(subModel?: any): any {
+    // 如果指定了副模型，优先使用副模型的专属 API
+    if (subModel) {
+      const subApiKey = subModel.apiKey?.trim()
+      const subBaseUrl = subModel.baseUrl?.trim()
+      if (subApiKey && subBaseUrl) {
+        return { apiKey: subApiKey, baseUrl: subBaseUrl }
+      }
+    }
+
+    // 使用主模型的 API
+    const mainApiKey = cfg.apiKey?.trim()
+    const mainBaseUrl = cfg.baseUrl?.trim()
+    if (mainApiKey && mainBaseUrl) {
+      return { apiKey: mainApiKey, baseUrl: mainBaseUrl }
+    }
+
+    // 回退到多 API 负载均衡列表
     const list = cfg.apiList.filter((v: any) => v.enable && v.apiKey && v.baseUrl)
     if (!list.length) return null
     if (cfg.apiStrategy === 'sequence') return list[0]
     const api = list[apiIdx.val % list.length]
     apiIdx.val++
     return api
+  }
+
+  /**
+   * 获取模型名称
+   * @param subModel 副模型配置（可选）
+   * @param mode 'txt2img' | 'img2img'
+   */
+  function getModel(subModel?: any, mode?: 'txt2img' | 'img2img'): string {
+    if (subModel) {
+      return subModel.model?.trim() || cfg.model
+    }
+    if (mode === 'txt2img') {
+      return cfg.txt2imgModel?.trim() || cfg.model
+    }
+    if (mode === 'img2img') {
+      return cfg.img2imgModel?.trim() || cfg.model
+    }
+    return cfg.model
   }
 
   // ==================== 修复：增强 HTML/XML 清理 ====================
@@ -534,18 +596,18 @@ export async function apply(ctx: Context, cfg: any) {
   // ==========================================================
 
   // ==================== 核心生成函数 ====================
-  async function generate(session: any, prompt: string, imageUrl?: string, modelOverride?: string): Promise<void> {
+  async function generate(session: any, prompt: string, imageUrl?: string, subModel?: any, mode?: 'txt2img' | 'img2img'): Promise<void> {
     if (!checkRateLimit()) {
       await safeSend(session, cfg.messages.rateLimit)
       return
     }
-    const api = getApi()
+    const api = getApi(subModel)
     if (!api) {
       if (debug) logger.info('无可用API')
       await safeSend(session, cfg.messages.noApi)
       return
     }
-    const model = modelOverride || cfg.model
+    const model = getModel(subModel, mode)
     let content: any
     if (imageUrl) {
       const processedUrl = await processImageUrl(imageUrl)
@@ -595,18 +657,18 @@ export async function apply(ctx: Context, cfg: any) {
     }
   }
 
-  async function generateWithMultipleImages(session: any, prompt: string, imageUrls: string[], modelOverride?: string): Promise<void> {
+  async function generateWithMultipleImages(session: any, prompt: string, imageUrls: string[], subModel?: any, mode?: 'txt2img' | 'img2img'): Promise<void> {
     if (!checkRateLimit()) {
       await safeSend(session, cfg.messages.rateLimit)
       return
     }
-    const api = getApi()
+    const api = getApi(subModel)
     if (!api) {
       if (debug) logger.info('无可用API')
       await safeSend(session, cfg.messages.noApi)
       return
     }
-    const model = modelOverride || cfg.model
+    const model = getModel(subModel, mode)
     const finalPrompt = prompt.replace('{url}', imageUrls.join(', '))
     const processedUrls = (await Promise.all(imageUrls.map(url => processImageUrl(url)))).filter((url: any) => url !== null)
     if (processedUrls.length === 0) {
@@ -655,7 +717,7 @@ export async function apply(ctx: Context, cfg: any) {
   }
 
   // ==================== 新增：处理带图片的合并消息 ====================
-  async function processImg2ImgWithImages(session: any, prompt: string, images: any[]): Promise<void> {
+  async function processImg2ImgWithImages(session: any, prompt: string, images: any[], subModel?: any): Promise<void> {
     const assets = ctx.assets
     if (!assets) {
       await safeSend(session, cfg.messages.needAssets)
@@ -691,7 +753,7 @@ export async function apply(ctx: Context, cfg: any) {
       .replace('{prompt}', prompt)
 
     await safeSend(session, cfg.messages.generating)
-    await generateWithMultipleImages(session, finalPrompt, finalUrls, cfg.img2imgModel || cfg.model)
+    await generateWithMultipleImages(session, finalPrompt, finalUrls, subModel, 'img2img')
   }
 
   // ==================== 新增：从 session.elements 提取纯文本 ====================
@@ -706,8 +768,8 @@ export async function apply(ctx: Context, cfg: any) {
     return cleanHtmlTags(textParts.join(' '))
   }
 
-  // ==================== 新增：文生图核心逻辑（支持预置提示词）====================
-  async function doTxt2Img(session: any, rawPrompt: string, explicitPresets?: any[]): Promise<void> {
+  // ==================== 新增：文生图核心逻辑（支持预置提示词，仅主模型）====================
+  async function doTxt2Img(session: any, rawPrompt: string, explicitPresets?: any[], subModel?: any): Promise<void> {
     if (!session) return
     if (await isBlacklisted(session.userId)) {
       await safeSend(session, cfg.messages.blacklisted)
@@ -724,15 +786,15 @@ export async function apply(ctx: Context, cfg: any) {
       return
     }
 
-    // 处理预置提示词
+    // 处理预置提示词（指令触发仅主模型文生图可用，关键词匹配任何生图都可用）
     const appliedPresets: any[] = []
 
-    // 1. 显式指定的预置提示词（通过指令触发）
-    if (explicitPresets && explicitPresets.length > 0) {
+    // 1. 显式指定的预置提示词（通过指令触发）—— 仅主模型文生图
+    if (!subModel && explicitPresets && explicitPresets.length > 0) {
       appliedPresets.push(...explicitPresets)
     }
 
-    // 2. 关键词匹配（仅在未通过指令触发时，或允许叠加时）
+    // 2. 关键词匹配 —— 任何生图都可用（主模型/副模型、文生图/图生图）
     if (cfg.enablePresets) {
       const keywordPresets = findPresetsByKeyword(prompt)
       for (const kp of keywordPresets) {
@@ -754,14 +816,95 @@ export async function apply(ctx: Context, cfg: any) {
 
     await safeSend(session, cfg.messages.generating)
     const finalPrompt = cfg.txt2imgPrompt.replace('{prompt}', prompt)
-    const model = cfg.txt2imgModel || cfg.model
-    await generate(session, finalPrompt, undefined, model)
+    const model = getModel(subModel, 'txt2img')
+    await generate(session, finalPrompt, undefined, subModel, 'txt2img')
+  }
+  // ==========================================================
+
+  // ==================== 新增：图生图核心逻辑 ====================
+  async function doImg2Img(session: any, rawPrompt: string, subModel?: any): Promise<void> {
+    if (!session) return
+    if (await isBlacklisted(session.userId)) {
+      await safeSend(session, cfg.messages.blacklisted)
+      return
+    }
+    if (!cfg.enableImg2Img) {
+      await safeSend(session, cfg.messages.img2imgDisabled)
+      return
+    }
+
+    let prompt = ''
+    if (session.elements && session.elements.length > 0) {
+      prompt = extractTextFromElements(session.elements)
+      if (debug) logger.info('从 elements 提取的 prompt:', prompt)
+    }
+    if (!prompt && rawPrompt) {
+      prompt = cleanHtmlTags(rawPrompt)
+    }
+
+    // 检查消息中是否包含图片（QQ 合并消息）
+    const messageImages = session.elements ? h.select(session.elements, 'img') : []
+
+    if (messageImages.length > 0) {
+      // 合并消息：同时包含文字和图片，直接处理
+      if (debug) logger.info(`检测到合并消息，包含 ${messageImages.length} 张图片，prompt: "${prompt}"`)
+      if (!prompt) {
+        await processImg2ImgWithImages(session, '请根据图片内容进行编辑', messageImages, subModel)
+      } else {
+        await processImg2ImgWithImages(session, prompt, messageImages, subModel)
+      }
+      return
+    }
+
+    // 处理预置提示词关键词匹配（任何生图都可用）
+    if (cfg.enablePresets) {
+      const keywordPresets = findPresetsByKeyword(prompt)
+      if (keywordPresets.length > 0) {
+        prompt = buildPromptWithPresets(prompt, keywordPresets)
+        if (debug) {
+          logger.info(`图生图应用关键词预置提示词: ${keywordPresets.map((p: any) => p.keyword).join(', ')}`)
+          logger.info(`图生图最终 prompt: ${prompt.slice(0, 200)}...`)
+        }
+      }
+    }
+
+    // 传统模式：只发送了文字，进入等待图片状态
+    if (!prompt) {
+      await safeSend(session, cfg.messages.empty)
+      return
+    }
+
+    const assets = ctx.assets
+    if (!assets) {
+      await safeSend(session, cfg.messages.needAssets)
+      return
+    }
+
+    const key = `${session.guildId || 'private'}-${session.userId}`
+    if (waitingMap.has(key)) {
+      await safeSend(session, cfg.messages.alreadyWaiting)
+      return
+    }
+
+    await safeSend(session, cfg.messages.waitImage.replace('60', String(cfg.imgWaitTime)))
+    const timer = setTimeout(() => {
+      const task = waitingMap.get(key)
+      if (!task) return
+      waitingMap.delete(key)
+      if (task.imageUrls.length > 0) {
+        safeSend(session, cfg.messages.generating).catch(() => { })
+        generateWithMultipleImages(session, task.prompt, task.imageUrls, task.subModel, 'img2img')
+      } else {
+        safeSend(session, cfg.messages.timeout).catch(() => { })
+      }
+    }, cfg.imgWaitTime * 1000)
+    waitingMap.set(key, { prompt, timer, imageUrls: [], subModel })
   }
   // ==========================================================
 
   // ==================== 命令注册 ====================
 
-  // 主文生图指令
+  // 主文生图指令（主模型）
   const cmd = ctx.command(`${cfg.command} <raw:text>`, 'draw')
   cfg.aliases.forEach((alias: string) => cmd.alias(alias))
   cmd.action(async ({ session }: any, raw: string) => {
@@ -773,12 +916,12 @@ export async function apply(ctx: Context, cfg: any) {
     }
   })
 
-  // ==================== 新增：预置提示词指令注册 ====================
+  // ==================== 新增：预置提示词指令注册（仅主模型）====================
   if (cfg.enablePresets && cfg.presets) {
     const presets = getEnabledPresets()
     for (let i = 0; i < presets.length; i++) {
       const preset = presets[i]
-      const presetCmd = preset.command?.trim() || `draw${i}`
+      const presetCmd = preset.command?.trim() || `preset${i}`
 
       // 注册指令
       const pCmd = ctx.command(`${presetCmd} <raw:text>`, `使用预置提示词: ${preset.text.slice(0, 20)}...`)
@@ -797,69 +940,53 @@ export async function apply(ctx: Context, cfg: any) {
   }
   // ==========================================================
 
-  // ==================== 修改：图生图命令支持合并消息 ====================
+  // ==================== 新增：副模型指令注册 ====================
+  if (cfg.subModels && cfg.subModels.length > 0) {
+    for (let i = 0; i < cfg.subModels.length; i++) {
+      const subModel = cfg.subModels[i]
+      if (!subModel.enable) continue
+
+      // 文生图指令
+      const subTxtCmd = subModel.txt2imgCommand?.trim() || `draw${i}`
+      const subTxtDesc = subModel.name ? `${subModel.name} - 文生图` : `副模型 ${i} - 文生图`
+      const stCmd = ctx.command(`${subTxtCmd} <raw:text>`, subTxtDesc)
+      stCmd.action(async ({ session }: any, raw: string) => {
+        try {
+          if (debug) logger.info(`副模型文生图指令触发: ${subTxtCmd}, 模型: ${subModel.model || cfg.model}`)
+          await doTxt2Img(session, raw, undefined, subModel)
+        } catch (e) {
+          logger.error(`副模型文生图指令 ${subTxtCmd} 异常`, e)
+          await safeSend(session, cfg.messages.fail)
+        }
+      })
+
+      // 图生图指令
+      const subImgCmd = subModel.img2imgCommand?.trim() || `imgdraw${i}`
+      const subImgDesc = subModel.name ? `${subModel.name} - 图生图` : `副模型 ${i} - 图生图`
+      const siCmd = ctx.command(`${subImgCmd} <raw:text>`, subImgDesc)
+      siCmd.action(async ({ session }: any, raw: string) => {
+        try {
+          if (debug) logger.info(`副模型图生图指令触发: ${subImgCmd}, 模型: ${subModel.model || cfg.model}`)
+          await doImg2Img(session, raw, subModel)
+        } catch (e) {
+          logger.error(`副模型图生图指令 ${subImgCmd} 异常`, e)
+          await safeSend(session, cfg.messages.fail)
+        }
+      })
+
+      if (debug) logger.info(`注册副模型指令: 文生图=${subTxtCmd}, 图生图=${subImgCmd}`)
+    }
+  }
+  // ==========================================================
+
+  // ==================== 修改：图生图命令支持合并消息（主模型）====================
   const imgCmd = ctx.command(`${cfg.img2imgCommand} <raw:text>`, 'imgdraw')
   cfg.img2imgAliases.forEach((alias: string) => imgCmd.alias(alias))
 
   // 修改 action 以支持检测消息中的图片
   imgCmd.action(async ({ session }: any, raw: string) => {
     try {
-      if (!session) return
-      if (await isBlacklisted(session.userId)) return safeSend(session, cfg.messages.blacklisted)
-      if (!cfg.enableImg2Img) return safeSend(session, cfg.messages.img2imgDisabled)
-
-      // ==================== 修复：从 elements 提取纯文本，避免 XML 污染 ====================
-      let prompt = ''
-      if (session.elements && session.elements.length > 0) {
-        // 有 elements，从中提取纯文本（排除图片等）
-        prompt = extractTextFromElements(session.elements)
-        if (debug) logger.info('从 elements 提取的 prompt:', prompt)
-      }
-      // 如果 elements 没有文本，回退到 raw
-      if (!prompt && raw) {
-        prompt = cleanHtmlTags(raw)
-      }
-
-      // 检查消息中是否包含图片（QQ 合并消息）
-      const messageImages = session.elements ? h.select(session.elements, 'img') : []
-
-      if (messageImages.length > 0) {
-        // 合并消息：同时包含文字和图片，直接处理
-        if (debug) logger.info(`检测到合并消息，包含 ${messageImages.length} 张图片，prompt: "${prompt}"`)
-        if (!prompt) {
-          // 如果没有文字 prompt，使用默认提示
-          await processImg2ImgWithImages(session, '请根据图片内容进行编辑', messageImages)
-        } else {
-          await processImg2ImgWithImages(session, prompt, messageImages)
-        }
-        return
-      }
-
-      // 传统模式：只发送了文字，进入等待图片状态
-      if (!prompt) return safeSend(session, cfg.messages.empty)
-
-      const assets = ctx.assets
-      if (!assets) return safeSend(session, cfg.messages.needAssets)
-
-      const key = `${session.guildId || 'private'}-${session.userId}`
-      if (waitingMap.has(key)) {
-        return safeSend(session, cfg.messages.alreadyWaiting)
-      }
-
-      await safeSend(session, cfg.messages.waitImage.replace('60', String(cfg.imgWaitTime)))
-      const timer = setTimeout(() => {
-        const task = waitingMap.get(key)
-        if (!task) return
-        waitingMap.delete(key)
-        if (task.imageUrls.length > 0) {
-          safeSend(session, cfg.messages.generating).catch(() => { })
-          generateWithMultipleImages(session, task.prompt, task.imageUrls, cfg.img2imgModel || cfg.model)
-        } else {
-          safeSend(session, cfg.messages.timeout).catch(() => { })
-        }
-      }, cfg.imgWaitTime * 1000)
-      waitingMap.set(key, { prompt, timer, imageUrls: [] })
-
+      await doImg2Img(session, raw)
     } catch (e) {
       logger.error('图生图命令异常', e)
       await safeSend(session, cfg.messages.fail)
@@ -901,7 +1028,7 @@ export async function apply(ctx: Context, cfg: any) {
           clearTimeout(task.timer)
           waitingMap.delete(key)
           await safeSend(session, cfg.messages.generating)
-          await generateWithMultipleImages(session, task.prompt, task.imageUrls, cfg.img2imgModel || cfg.model)
+          await generateWithMultipleImages(session, task.prompt, task.imageUrls, task.subModel, 'img2img')
           return
         }
         clearTimeout(task.timer)
@@ -909,7 +1036,7 @@ export async function apply(ctx: Context, cfg: any) {
           waitingMap.delete(key)
           if (task.imageUrls.length > 0) {
             safeSend(session, cfg.messages.generating).catch(() => { })
-            generateWithMultipleImages(session, task.prompt, task.imageUrls, cfg.img2imgModel || cfg.model)
+            generateWithMultipleImages(session, task.prompt, task.imageUrls, task.subModel, 'img2img')
           } else {
             safeSend(session, cfg.messages.timeout).catch(() => { })
           }
@@ -924,7 +1051,7 @@ export async function apply(ctx: Context, cfg: any) {
         waitingMap.delete(key)
         if (task.imageUrls.length > 0) {
           await safeSend(session, cfg.messages.generating)
-          await generateWithMultipleImages(session, task.prompt, task.imageUrls, cfg.img2imgModel || cfg.model)
+          await generateWithMultipleImages(session, task.prompt, task.imageUrls, task.subModel, 'img2img')
         } else {
           await safeSend(session, cfg.messages.noImageReceived)
         }
@@ -1007,3 +1134,4 @@ export async function apply(ctx: Context, cfg: any) {
     }
   })
 }
+

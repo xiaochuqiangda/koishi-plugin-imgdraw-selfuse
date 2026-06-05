@@ -1,7 +1,7 @@
 {
   "name": "koishi-plugin-imgdraw-selfuse",
   "description": "修改自ai-image的画图插件,支持openai兼容api,增加base64转换自由开启，增加图文合并消息图生图，增加预置提示词",
-  "version": "0.1.3",
+  "version": "0.1.4",
   "main": "lib/index.js",
   "typings": "lib/index.d.ts",
   "files": [
