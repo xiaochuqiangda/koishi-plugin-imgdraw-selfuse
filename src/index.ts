@@ -53,7 +53,24 @@ const SubModelItem = Schema.object({
   name: Schema.string().default('').description('副模型名称（仅用于标识，如"二次元模型"）'),
   model: Schema.string().default('').description('模型名称（如 gpt-4o-mini）'),
   apiKey: Schema.string().default('').description('API Key（留空则使用主模型的 API Key）'),
-  baseUrl: Schema.string().default('').description('接口地址（留空则使用主模型的接口地址）'),
+
+  // 副模型独立配置 API 类型和地址
+  apiType: Schema.union([
+    Schema.const('auto').description('跟随主模型设置'),
+    Schema.const('chat').description('强制聊天补全模式 (/v1/chat/completions)'),
+    Schema.const('images').description('强制图像生成模式 (/v1/images/generations)'),
+  ]).default('auto').description('副模型 API 调用类型（auto=跟随主模型）'),
+
+  baseUrl: Schema.string().default('').description('接口地址（留空则使用主模型的接口地址，需符合 OpenAI 标准）'),
+
+  // 新增：副模型独立配置参考图片字段名
+  imageRefField: Schema.union([
+    Schema.const('auto').description('跟随主模型设置'),
+    Schema.const('image').description('image（OpenAI 标准）'),
+    Schema.const('image_url').description('image_url（部分中转站）'),
+    Schema.const('reference_image').description('reference_image（自定义）'),
+  ]).default('auto').description('图生图时参考图片的字段名（auto=跟随主模型）'),
+
   txt2imgCommand: Schema.string().default('').description('文生图触发指令（如 draw2，留空则默认使用 drawN，N 为序号）'),
   img2imgCommand: Schema.string().default('').description('图生图触发指令（如 imgdraw2，留空则默认使用 imgdrawN，N 为序号）'),
 }).description('副模型配置项')
@@ -64,7 +81,23 @@ export const ModelConfig = Schema.object({
   txt2imgModel: Schema.string().default('').description('主模型文生图专用模型，留空则使用主模型名称'),
   img2imgModel: Schema.string().default('').description('主模型图生图专用模型，留空则使用主模型名称'),
   apiKey: Schema.string().default('').description('主模型 API Key'),
+
+  // 主模型独立配置 API 类型和地址
+  apiType: Schema.union([
+    Schema.const('auto').description('自动检测（先尝试标准图像API，失败则回退到聊天API）'),
+    Schema.const('chat').description('强制聊天补全模式 (/v1/chat/completions)'),
+    Schema.const('images').description('强制图像生成模式 (/v1/images/generations)'),
+  ]).default('auto').description('主模型 API 调用类型'),
+
   baseUrl: Schema.string().default('').description('主模型接口地址，需符合 OpenAI 标准'),
+
+  // 新增：主模型独立配置参考图片字段名
+  imageRefField: Schema.union([
+    Schema.const('image').description('image（OpenAI 标准）'),
+    Schema.const('image_url').description('image_url（部分中转站）'),
+    Schema.const('reference_image').description('reference_image（自定义）'),
+  ]).default('image').description('图生图时参考图片的字段名（标准图像API使用）'),
+
   // 副模型列表
   subModels: Schema.array(SubModelItem).default([]).description('副模型列表（可添加多个，每个副模型拥有独立的模型名、API、触发指令）'),
 }).description('模型配置项')
@@ -106,7 +139,7 @@ export const BaseConfig = Schema.object({
   aliases: Schema.array(String).default([]).description('主模型文生图指令别名'),
   img2imgCommand: Schema.string().default('imgdraw').description('主模型图生图指令'),
   img2imgAliases: Schema.array(String).default([]).description('主模型图生图指令别名'),
-  txt2imgPrompt: Schema.string().default('请严格遵循我的要求生成一张图片，不要询问或添加额外说明，直接输出图片。你可以使用联网功能获取最新的数据或信息。要求：{prompt}').description('文生图提示词模板'),
+  txt2imgPrompt: Schema.string().default('请严格遵循我的要求生成一张图片，不要询问或添加额外说明，直接输出图片。你可以使用联网功能获取最新的数据或信息。\n要求：{prompt}').description('文生图提示词模板'),
   img2imgPrompt: Schema.string().default('图片链接：{url} 请严格根据以下指令对提供的图片进行编辑或重绘，不要询问，直接输出结果。你可以使用联网功能获取最新的数据或信息。\n指令：{prompt}').description('图生图提示词模板'),
   blacklistAdmins: Schema.array(String).default([]).description('允许管理黑名单的 QQ 号列表'),
 }).description('AI 绘图插件配置')
@@ -221,6 +254,10 @@ export async function apply(ctx: Context, cfg: any) {
       if (subApiKey && subBaseUrl) {
         return { apiKey: subApiKey, baseUrl: subBaseUrl }
       }
+      // 副模型只填了 baseUrl，用主模型的 apiKey
+      if (subBaseUrl && cfg.apiKey) {
+        return { apiKey: cfg.apiKey, baseUrl: subBaseUrl }
+      }
     }
 
     // 使用主模型的 API
@@ -255,6 +292,40 @@ export async function apply(ctx: Context, cfg: any) {
       return cfg.img2imgModel?.trim() || cfg.model
     }
     return cfg.model
+  }
+
+  /**
+   * 获取实际使用的 API 类型
+   * @param subModel 副模型配置（可选）
+   */
+  function getEffectiveApiType(subModel?: any): string {
+    if (subModel) {
+      const subType = subModel.apiType
+      if (subType && subType !== 'auto') {
+        return subType
+      }
+      // 副模型跟随主模型
+      return cfg.apiType || 'auto'
+    }
+    // 主模型
+    return cfg.apiType || 'auto'
+  }
+
+  /**
+   * 获取实际使用的参考图片字段名
+   * @param subModel 副模型配置（可选）
+   */
+  function getEffectiveImageRefField(subModel?: any): string {
+    if (subModel) {
+      const subField = subModel.imageRefField
+      if (subField && subField !== 'auto') {
+        return subField
+      }
+      // 副模型跟随主模型
+      return cfg.imageRefField || 'image'
+    }
+    // 主模型
+    return cfg.imageRefField || 'image'
   }
 
   // ==================== 修复：增强 HTML/XML 清理 ====================
@@ -424,8 +495,13 @@ export async function apply(ctx: Context, cfg: any) {
     if (axios.isAxiosError(err)) {
       if (err.code === 'ECONNABORTED') return '请求超时'
       if (err.code === 'ERR_NETWORK' || err.code?.startsWith('ERR_')) return '网络连接失败'
+      if (err.code === 'ECONNRESET') return '连接被重置（服务端可能不支持此API格式或负载过高）'
       if (err.response) {
         const status = err.response.status
+        if (status === 404) return 'API端点不存在（404）'
+        if (status === 400) return '请求参数错误（400）'
+        if (status === 401) return 'API Key 无效（401）'
+        if (status === 429) return '请求过于频繁（429）'
         if (status >= 500) return `服务器错误 (${status})`
         if (status >= 400) return `请求错误 (${status})，请检查 API Key 或参数`
       }
@@ -595,7 +671,139 @@ export async function apply(ctx: Context, cfg: any) {
   }
   // ==========================================================
 
-  // ==================== 核心生成函数 ====================
+  // ==================== 通用 API 调用函数 ====================
+
+  /**
+   * 尝试用标准图像生成 API 调用
+   */
+  async function tryImagesApi(session: any, prompt: string, imageUrl: string | undefined, api: any, model: string, subModel?: any): Promise<{ success: boolean; result?: any; error?: string; rawError?: any }> {
+    // 直接使用 baseUrl 作为图像API地址（用户需自行填写正确的图像API端点）
+    const url = api.baseUrl
+
+    const body: any = {
+      model,
+      prompt,
+      n: 1,
+      size: '1024x1024',
+    }
+
+    // 图生图：添加参考图片（gpt-image-2 图像API可能不支持，但尝试传入）
+    if (imageUrl) {
+      // imageUrl 已经由调用方处理过，直接使用
+      const refField = getEffectiveImageRefField(subModel)
+      body[refField] = imageUrl
+      if (debug) logger.info(`图生图添加参考图片字段: ${refField}`)
+    }
+
+    if (debug) {
+      const logBody = { ...body }
+      if (logBody.image) logBody.image = '[图片数据]'
+      if (logBody.image_url) logBody.image_url = '[图片数据]'
+      if (logBody.reference_image) logBody.reference_image = '[图片数据]'
+      logger.info('尝试图像生成API:', url)
+      logger.info('请求体:', JSON.stringify(logBody, null, 2))
+    }
+
+    try {
+      const res = await axios.post(url, body, {
+        headers: {
+          Authorization: `Bearer ${api.apiKey}`,
+          'Content-Type': 'application/json'
+        },
+        timeout: cfg.timeout,
+      })
+
+      if (debug) logger.info('图像生成API返回:', JSON.stringify(res.data, null, 2))
+
+      // 标准格式: { data: [{ url: "...", revised_prompt: "..." }] }
+      const imgUrl = res.data?.data?.[0]?.url || null
+      const b64Data = res.data?.data?.[0]?.b64_json || null
+
+      if (imgUrl || b64Data) {
+        return {
+          success: true,
+          result: {
+            url: imgUrl,
+            base64: b64Data ? `data:image/png;base64,${b64Data}` : null
+          }
+        }
+      }
+
+      // 有些中转站可能返回不同格式，尝试兼容
+      const altUrl = res.data?.url || res.data?.image_url || res.data?.data?.url || null
+      if (altUrl) {
+        return { success: true, result: { url: altUrl, base64: null } }
+      }
+
+      return { success: false, error: '返回格式不正确' }
+    } catch (err: any) {
+      // 404 = 端点不存在，400 = 参数不支持，405 = 方法不允许，这些情况下可以回退
+      const status = err.response?.status
+      if (status === 404 || status === 400 || status === 405) {
+        if (debug) logger.info(`图像生成API不支持 (${status})，将回退到聊天API`)
+        return { success: false, error: 'not_supported', rawError: err }
+      }
+      // 其他错误（如 ECONNRESET）直接抛出，让上层处理
+      throw err
+    }
+  }
+
+  /**
+   * 用聊天补全 API 调用（兼容 gpt-image-2 多模态格式）
+   */
+  async function tryChatApi(session: any, prompt: string, imageUrl: string | undefined, api: any, model: string): Promise<{ success: boolean; result?: any; error?: string }> {
+    // gpt-image-2 在聊天模式下需要多模态消息格式，即使是文生图也要用数组格式
+    const content: any[] = [
+      { type: 'text', text: prompt },
+    ]
+
+    if (imageUrl) {
+      const processedUrl = await processImageUrl(imageUrl)
+      if (!processedUrl) {
+        return { success: false, error: '图片处理失败' }
+      }
+      content.push({ type: 'image_url', image_url: { url: processedUrl } })
+    }
+
+    const body = {
+      model,
+      messages: [{ role: 'user', content }],
+    }
+
+    if (debug) logger.info('聊天API请求体:', JSON.stringify(body, null, 2))
+
+    try {
+      const res = await axios.post(api.baseUrl, body, {
+        headers: { Authorization: `Bearer ${api.apiKey}` },
+        timeout: cfg.timeout,
+      })
+
+      if (debug) logger.info('聊天API返回:', JSON.stringify(res.data, null, 2))
+
+      // 尝试各种可能的返回格式
+      let imgUrl: string | null = res.data?.data?.[0]?.url || null
+      if (!imgUrl) {
+        const contentText = res.data?.choices?.[0]?.message?.content || ''
+        imgUrl = getImageUrlFromContent(contentText)
+        if (imgUrl) {
+          return { success: true, result: { url: imgUrl, base64: null } }
+        }
+        // 如果没有图片URL，返回文本内容
+        if (contentText && typeof contentText === 'string' && contentText.trim().length > 0) {
+          return { success: true, result: { text: contentText.trim() } }
+        }
+      } else {
+        return { success: true, result: { url: imgUrl, base64: null } }
+      }
+
+      return { success: false, error: '未返回任何内容' }
+    } catch (err) {
+      throw err
+    }
+  }
+  // ==========================================================
+
+  // ==================== 修改后的 generate 函数（通用兼容）====================
   async function generate(session: any, prompt: string, imageUrl?: string, subModel?: any, mode?: 'txt2img' | 'img2img'): Promise<void> {
     if (!checkRateLimit()) {
       await safeSend(session, cfg.messages.rateLimit)
@@ -608,47 +816,64 @@ export async function apply(ctx: Context, cfg: any) {
       return
     }
     const model = getModel(subModel, mode)
-    let content: any
-    if (imageUrl) {
-      const processedUrl = await processImageUrl(imageUrl)
-      if (!processedUrl) {
-        await safeSend(session, cfg.messages.fail + '（图片处理失败）')
-        return
-      }
-      content = [
-        { type: 'text', text: prompt },
-        { type: 'image_url', image_url: { url: processedUrl } },
-      ]
-    } else {
-      content = prompt
-    }
-    const body = {
-      model,
-      messages: [{ role: 'user', content }],
-    }
-    if (debug) logger.info('请求体:', JSON.stringify(body, null, 2))
+    const apiType = getEffectiveApiType(subModel)
+
+    let result: any = null
+    let usedApiType = ''
+
     try {
-      recordApiCall()
-      const res = await axios.post(api.baseUrl, body, {
-        headers: { Authorization: `Bearer ${api.apiKey}` },
-        timeout: cfg.timeout,
-      })
-      if (debug) logger.info('API返回:', JSON.stringify(res.data, null, 2))
-      let imgUrl: string | null = res.data?.data?.[0]?.url || null
-      if (!imgUrl) {
-        const contentText = res.data?.choices?.[0]?.message?.content || ''
-        imgUrl = getImageUrlFromContent(contentText)
-      }
-      if (imgUrl) {
-        await sendImage(session, imgUrl)
-      } else {
-        const textContent = res.data?.choices?.[0]?.message?.content
-        if (textContent && typeof textContent === 'string' && textContent.trim().length > 0) {
-          const msg = cfg.messages.modelTextOnly.replace('{text}', textContent.trim().slice(0, 500))
-          await safeSend(session, msg)
+      // 根据配置选择调用策略
+      if (apiType === 'images') {
+        // 强制使用图像生成 API
+        const res = await tryImagesApi(session, prompt, imageUrl, api, model, subModel)
+        if (res.success) {
+          result = res.result
+          usedApiType = 'images'
         } else {
-          await safeSend(session, cfg.messages.fail + '（未返回任何内容）')
+          throw new Error(res.error || '图像生成API失败')
         }
+      } else if (apiType === 'chat') {
+        // 强制使用聊天 API
+        const res = await tryChatApi(session, prompt, imageUrl, api, model)
+        if (res.success) {
+          result = res.result
+          usedApiType = 'chat'
+        } else {
+          throw new Error(res.error || '聊天API失败')
+        }
+      } else {
+        // 自动模式：先尝试图像API，不支持则回退到聊天API
+        const imagesRes = await tryImagesApi(session, prompt, imageUrl, api, model, subModel)
+        if (imagesRes.success) {
+          result = imagesRes.result
+          usedApiType = 'images'
+          if (debug) logger.info('自动模式：使用图像生成API成功')
+        } else if (imagesRes.error === 'not_supported') {
+          // 图像API不支持，回退到聊天API
+          const chatRes = await tryChatApi(session, prompt, imageUrl, api, model)
+          if (chatRes.success) {
+            result = chatRes.result
+            usedApiType = 'chat'
+            if (debug) logger.info('自动模式：图像API不支持，回退到聊天API成功')
+          } else {
+            throw new Error(chatRes.error || '聊天API失败')
+          }
+        } else {
+          throw new Error(imagesRes.error || '图像生成API失败')
+        }
+      }
+
+      // 处理结果
+      if (result.url || result.base64) {
+        const imgUrl = result.base64 || result.url
+        await sendImage(session, imgUrl)
+        if (debug) logger.info(`生成成功，使用API类型: ${usedApiType}`)
+      } else if (result.text) {
+        const msg = cfg.messages.modelTextOnly.replace('{text}', result.text.slice(0, 500))
+        await safeSend(session, msg)
+        if (debug) logger.info(`返回文本内容，使用API类型: ${usedApiType}`)
+      } else {
+        await safeSend(session, cfg.messages.fail + '（未返回任何内容）')
       }
     } catch (err) {
       const reason = getErrorMessage(err)
@@ -657,6 +882,7 @@ export async function apply(ctx: Context, cfg: any) {
     }
   }
 
+  // ==================== 修改后的 generateWithMultipleImages 函数（通用兼容）====================
   async function generateWithMultipleImages(session: any, prompt: string, imageUrls: string[], subModel?: any, mode?: 'txt2img' | 'img2img'): Promise<void> {
     if (!checkRateLimit()) {
       await safeSend(session, cfg.messages.rateLimit)
@@ -669,47 +895,97 @@ export async function apply(ctx: Context, cfg: any) {
       return
     }
     const model = getModel(subModel, mode)
+    const apiType = getEffectiveApiType(subModel)
+
+    // 多图处理：标准图像API通常只支持单图，聊天API支持多图
+    // 自动模式下，如果有多图且>1张，优先尝试聊天API（支持多图）
     const finalPrompt = prompt.replace('{url}', imageUrls.join(', '))
-    const processedUrls = (await Promise.all(imageUrls.map(url => processImageUrl(url)))).filter((url: any) => url !== null)
-    if (processedUrls.length === 0) {
-      await safeSend(session, cfg.messages.fail + '（图片处理失败）')
-      return
-    }
-    const content: any[] = [
-      { type: 'text', text: finalPrompt },
-      ...processedUrls.map(url => ({ type: 'image_url', image_url: { url } })),
-    ]
-    const body = {
-      model,
-      messages: [{ role: 'user', content }],
-    }
-    if (debug) logger.info('多图请求体:', JSON.stringify(body, null, 2))
+
+    let result: any = null
+    let usedApiType = ''
+
     try {
-      recordApiCall()
-      const res = await axios.post(api.baseUrl, body, {
-        headers: { Authorization: `Bearer ${api.apiKey}` },
-        timeout: cfg.timeout,
-      })
-      if (debug) logger.info('API返回:', JSON.stringify(res.data, null, 2))
-      let imgUrl: string | null = res.data?.data?.[0]?.url || null
-      if (!imgUrl) {
-        const contentText = res.data?.choices?.[0]?.message?.content || ''
-        imgUrl = getImageUrlFromContent(contentText)
-      }
-      if (imgUrl) {
-        await sendImage(session, imgUrl)
-      } else {
-        const textContent = res.data?.choices?.[0]?.message?.content
-        if (textContent && typeof textContent === 'string' && textContent.trim().length > 0) {
-          const msg = cfg.messages.modelTextOnly.replace('{text}', textContent.trim().slice(0, 500))
-          await safeSend(session, msg)
-        } else {
-          await safeSend(session, cfg.messages.fail + '（未返回任何内容）')
+      if (apiType === 'chat') {
+        // 强制聊天模式：使用聊天API（支持多图）
+        const processedUrls = (await Promise.all(imageUrls.map(url => processImageUrl(url)))).filter((url: any) => url !== null)
+        if (processedUrls.length === 0) {
+          await safeSend(session, cfg.messages.fail + '（图片处理失败）')
+          return
         }
+
+        const content: any[] = [
+          { type: 'text', text: finalPrompt },
+          ...processedUrls.map(url => ({ type: 'image_url', image_url: { url } })),
+        ]
+
+        const body = {
+          model,
+          messages: [{ role: 'user', content }],
+        }
+
+        if (debug) logger.info('多图聊天API请求体:', JSON.stringify(body, null, 2))
+
+        recordApiCall()
+        const res = await axios.post(api.baseUrl, body, {
+          headers: { Authorization: `Bearer ${api.apiKey}` },
+          timeout: cfg.timeout,
+        })
+
+        if (debug) logger.info('多图聊天API返回:', JSON.stringify(res.data, null, 2))
+
+        let imgUrl: string | null = res.data?.data?.[0]?.url || null
+        if (!imgUrl) {
+          const contentText = res.data?.choices?.[0]?.message?.content || ''
+          imgUrl = getImageUrlFromContent(contentText)
+          if (imgUrl) {
+            result = { url: imgUrl }
+          } else if (contentText && typeof contentText === 'string' && contentText.trim().length > 0) {
+            result = { text: contentText.trim() }
+          }
+        } else {
+          result = { url: imgUrl }
+        }
+
+        usedApiType = 'chat'
+      } else if (apiType === 'images' || apiType === 'auto') {
+        // 强制图像模式 或 自动模式：尝试图像API
+        // 注意：标准图像API可能不支持参考图，这里尝试传入
+        const processedUrl = await processImageUrl(imageUrls[0])
+        if (!processedUrl) {
+          await safeSend(session, cfg.messages.fail + '（图片处理失败）')
+          return
+        }
+        const imagesRes = await tryImagesApi(session, finalPrompt, processedUrl, api, model, subModel)
+        if (imagesRes.success) {
+          result = imagesRes.result
+          usedApiType = 'images'
+        } else if (apiType === 'auto' && imagesRes.error === 'not_supported') {
+          // 回退到聊天API
+          const chatRes = await tryChatApi(session, finalPrompt, processedUrl, api, model)
+          if (chatRes.success) {
+            result = chatRes.result
+            usedApiType = 'chat'
+          } else {
+            throw new Error(chatRes.error || '聊天API失败')
+          }
+        } else {
+          throw new Error(imagesRes.error || '图像生成API失败')
+        }
+      }
+
+      // 处理结果
+      if (result?.url || result?.base64) {
+        const imgUrl = result.base64 || result.url
+        await sendImage(session, imgUrl)
+      } else if (result?.text) {
+        const msg = cfg.messages.modelTextOnly.replace('{text}', result.text.slice(0, 500))
+        await safeSend(session, msg)
+      } else {
+        await safeSend(session, cfg.messages.fail + '（未返回任何内容）')
       }
     } catch (err) {
       const reason = getErrorMessage(err)
-      logger.error(`API请求失败 [${reason}]`, err)
+      logger.error(`多图API请求失败 [${reason}]`, err)
       await safeSend(session, `${cfg.messages.fail} [${reason}]`)
     } finally {
       deleteAllCachedFiles(imageUrls)

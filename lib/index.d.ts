@@ -21,13 +21,17 @@ export declare const ModelConfig: Schema<Schemastery.ObjectS<{
     txt2imgModel: Schema<string, string>;
     img2imgModel: Schema<string, string>;
     apiKey: Schema<string, string>;
+    apiType: Schema<"auto" | "chat" | "images", "auto" | "chat" | "images">;
     baseUrl: Schema<string, string>;
+    imageRefField: Schema<"image" | "image_url" | "reference_image", "image" | "image_url" | "reference_image">;
     subModels: Schema<Schemastery.ObjectS<{
         enable: Schema<boolean, boolean>;
         name: Schema<string, string>;
         model: Schema<string, string>;
         apiKey: Schema<string, string>;
+        apiType: Schema<"auto" | "chat" | "images", "auto" | "chat" | "images">;
         baseUrl: Schema<string, string>;
+        imageRefField: Schema<"auto" | "image" | "image_url" | "reference_image", "auto" | "image" | "image_url" | "reference_image">;
         txt2imgCommand: Schema<string, string>;
         img2imgCommand: Schema<string, string>;
     }>[], Schemastery.ObjectT<{
@@ -35,7 +39,9 @@ export declare const ModelConfig: Schema<Schemastery.ObjectS<{
         name: Schema<string, string>;
         model: Schema<string, string>;
         apiKey: Schema<string, string>;
+        apiType: Schema<"auto" | "chat" | "images", "auto" | "chat" | "images">;
         baseUrl: Schema<string, string>;
+        imageRefField: Schema<"auto" | "image" | "image_url" | "reference_image", "auto" | "image" | "image_url" | "reference_image">;
         txt2imgCommand: Schema<string, string>;
         img2imgCommand: Schema<string, string>;
     }>[]>;
@@ -44,13 +50,17 @@ export declare const ModelConfig: Schema<Schemastery.ObjectS<{
     txt2imgModel: Schema<string, string>;
     img2imgModel: Schema<string, string>;
     apiKey: Schema<string, string>;
+    apiType: Schema<"auto" | "chat" | "images", "auto" | "chat" | "images">;
     baseUrl: Schema<string, string>;
+    imageRefField: Schema<"image" | "image_url" | "reference_image", "image" | "image_url" | "reference_image">;
     subModels: Schema<Schemastery.ObjectS<{
         enable: Schema<boolean, boolean>;
         name: Schema<string, string>;
         model: Schema<string, string>;
         apiKey: Schema<string, string>;
+        apiType: Schema<"auto" | "chat" | "images", "auto" | "chat" | "images">;
         baseUrl: Schema<string, string>;
+        imageRefField: Schema<"auto" | "image" | "image_url" | "reference_image", "auto" | "image" | "image_url" | "reference_image">;
         txt2imgCommand: Schema<string, string>;
         img2imgCommand: Schema<string, string>;
     }>[], Schemastery.ObjectT<{
@@ -58,7 +68,9 @@ export declare const ModelConfig: Schema<Schemastery.ObjectS<{
         name: Schema<string, string>;
         model: Schema<string, string>;
         apiKey: Schema<string, string>;
+        apiType: Schema<"auto" | "chat" | "images", "auto" | "chat" | "images">;
         baseUrl: Schema<string, string>;
+        imageRefField: Schema<"auto" | "image" | "image_url" | "reference_image", "auto" | "image" | "image_url" | "reference_image">;
         txt2imgCommand: Schema<string, string>;
         img2imgCommand: Schema<string, string>;
     }>[]>;
@@ -267,13 +279,17 @@ export declare const Config: Schema<Schemastery.ObjectS<{
     txt2imgModel: Schema<string, string>;
     img2imgModel: Schema<string, string>;
     apiKey: Schema<string, string>;
+    apiType: Schema<"auto" | "chat" | "images", "auto" | "chat" | "images">;
     baseUrl: Schema<string, string>;
+    imageRefField: Schema<"image" | "image_url" | "reference_image", "image" | "image_url" | "reference_image">;
     subModels: Schema<Schemastery.ObjectS<{
         enable: Schema<boolean, boolean>;
         name: Schema<string, string>;
         model: Schema<string, string>;
         apiKey: Schema<string, string>;
+        apiType: Schema<"auto" | "chat" | "images", "auto" | "chat" | "images">;
         baseUrl: Schema<string, string>;
+        imageRefField: Schema<"auto" | "image" | "image_url" | "reference_image", "auto" | "image" | "image_url" | "reference_image">;
         txt2imgCommand: Schema<string, string>;
         img2imgCommand: Schema<string, string>;
     }>[], Schemastery.ObjectT<{
@@ -281,7 +297,9 @@ export declare const Config: Schema<Schemastery.ObjectS<{
         name: Schema<string, string>;
         model: Schema<string, string>;
         apiKey: Schema<string, string>;
+        apiType: Schema<"auto" | "chat" | "images", "auto" | "chat" | "images">;
         baseUrl: Schema<string, string>;
+        imageRefField: Schema<"auto" | "image" | "image_url" | "reference_image", "auto" | "image" | "image_url" | "reference_image">;
         txt2imgCommand: Schema<string, string>;
         img2imgCommand: Schema<string, string>;
     }>[]>;
@@ -388,13 +406,17 @@ export declare const Config: Schema<Schemastery.ObjectS<{
     txt2imgModel: string;
     img2imgModel: string;
     apiKey: string;
+    apiType: "auto" | "chat" | "images";
     baseUrl: string;
+    imageRefField: "image" | "image_url" | "reference_image";
     subModels: Schemastery.ObjectT<{
         enable: Schema<boolean, boolean>;
         name: Schema<string, string>;
         model: Schema<string, string>;
         apiKey: Schema<string, string>;
+        apiType: Schema<"auto" | "chat" | "images", "auto" | "chat" | "images">;
         baseUrl: Schema<string, string>;
+        imageRefField: Schema<"auto" | "image" | "image_url" | "reference_image", "auto" | "image" | "image_url" | "reference_image">;
         txt2imgCommand: Schema<string, string>;
         img2imgCommand: Schema<string, string>;
     }>[];
