@@ -343,6 +343,59 @@ export async function apply(ctx: Context, cfg: any) {
 
     return '1024x1024' // 默认
   }
+  // ==================== 新增：从提示词提取质量和分辨率参数 ====================
+  /**
+   * 从 prompt 中提取质量/分辨率参数
+   * 支持：4k/4K → size: 3840x2160, 高质量/high quality → quality: high
+   *       自定义分辨率如 1920x1080 → size: 1920x1080
+   * 返回处理后的 prompt（移除关键词）和参数对象
+   */
+  function extractQualityParams(prompt: string): { cleanedPrompt: string; params: { size?: string; quality?: string } } {
+    if (!prompt) return { cleanedPrompt: prompt, params: {} }
+
+    let cleaned = prompt
+    const params: { size?: string; quality?: string } = {}
+
+    // 检测 4k/4K（不区分大小写，支持 4k, 4K, 4 k）
+    const fourKReg = /4\s*k/gi
+    if (fourKReg.test(prompt)) {
+      params.size = '3840x2160'
+      cleaned = cleaned.replace(fourKReg, '').trim()
+      if (debug) logger.info('检测到 4K 关键词，设置 size: 3840x2160')
+    }
+
+    // 检测自定义分辨率（如 1920x1080, 2560x1440 等）
+    // 格式：数字x数字，如 1920x1080, 2560x1440
+    // 注意：如果已经匹配了4k，不再匹配自定义分辨率
+    if (!params.size) {
+      const customSizeReg = /(\d{3,4})\s*[xX×]\s*(\d{3,4})/
+      const customMatch = prompt.match(customSizeReg)
+      if (customMatch) {
+        params.size = `${customMatch[1]}x${customMatch[2]}`
+        cleaned = cleaned.replace(customMatch[0], '').trim()
+        if (debug) logger.info(`检测到自定义分辨率，设置 size: ${params.size}`)
+      }
+    }
+
+    // 检测高质量/高清/high quality（不区分大小写）
+    const qualityKeywords = ['高质量', '高清', 'high quality', 'best quality', '超高质量']
+    for (const kw of qualityKeywords) {
+      const reg = new RegExp(kw.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'gi')
+      if (reg.test(prompt)) {
+        params.quality = 'high'
+        cleaned = cleaned.replace(reg, '').trim()
+        if (debug) logger.info(`检测到质量关键词 "${kw}"，设置 quality: high`)
+        break // 只匹配一次
+      }
+    }
+
+    // 清理多余空格
+    cleaned = cleaned.replace(/\s+/g, ' ').trim()
+
+    return { cleanedPrompt: cleaned, params }
+  }
+  // ==========================================================
+
   // ==========================================================
 
 
@@ -747,16 +800,24 @@ export async function apply(ctx: Context, cfg: any) {
     // 判断 API 类型
     if (isImagesApi(url)) {
       // 图像生成 API 格式
-      // 从提示词中提取尺寸（仅图像生成API支持）
+      // 从提示词中提取尺寸和质量参数
       const detectedSize = extractSizeFromPrompt(prompt)
+      const { cleanedPrompt, params: qualityParams } = extractQualityParams(prompt)
+
       if (debug && detectedSize !== '1024x1024') {
         logger.info(`检测到尺寸关键词，使用 size: ${detectedSize}`)
       }
+
       const body: any = {
         model,
-        prompt,
+        prompt: cleanedPrompt,
         n: 1,
-        size: detectedSize,
+        size: qualityParams.size || detectedSize,
+      }
+
+      // 添加质量参数
+      if (qualityParams.quality) {
+        body.quality = qualityParams.quality
       }
 
       // 图生图：添加参考图片
@@ -813,8 +874,11 @@ export async function apply(ctx: Context, cfg: any) {
 
     } else if (isChatApi(url)) {
       // 聊天补全 API 格式（多模态）
+      // 从提示词中提取质量参数
+      const { cleanedPrompt, params: qualityParams } = extractQualityParams(prompt)
+
       const content: any[] = [
-        { type: 'text', text: prompt },
+        { type: 'text', text: cleanedPrompt },
       ]
 
       if (imageUrl) {
@@ -825,9 +889,17 @@ export async function apply(ctx: Context, cfg: any) {
         content.push({ type: 'image_url', image_url: { url: processedUrl } })
       }
 
-      const body = {
+      const body: any = {
         model,
         messages: [{ role: 'user', content }],
+      }
+
+      // 添加质量参数（如果中转站支持）
+      if (qualityParams.size) {
+        body.size = qualityParams.size
+      }
+      if (qualityParams.quality) {
+        body.quality = qualityParams.quality
       }
 
       if (debug) logger.info('聊天API请求体:', JSON.stringify(body, null, 2))
@@ -865,11 +937,17 @@ export async function apply(ctx: Context, cfg: any) {
       // 未知端点，默认按图像生成格式尝试
       logger.warn(`未知的 API 端点: ${url}，将按图像生成格式尝试`)
       const detectedSize = extractSizeFromPrompt(prompt)
+      const { cleanedPrompt, params: qualityParams } = extractQualityParams(prompt)
       const body: any = {
         model,
-        prompt,
+        prompt: cleanedPrompt,
         n: 1,
-        size: detectedSize,
+        size: qualityParams.size || detectedSize,
+      }
+
+      // 添加质量参数
+      if (qualityParams.quality) {
+        body.quality = qualityParams.quality
       }
 
       if (imageUrl) {
@@ -989,14 +1067,25 @@ export async function apply(ctx: Context, cfg: any) {
           return
         }
 
+        // 从提示词中提取质量参数
+        const { cleanedPrompt: cleanedFinalPrompt, params: qualityParams } = extractQualityParams(finalPrompt)
+
         const content: any[] = [
-          { type: 'text', text: finalPrompt },
+          { type: 'text', text: cleanedFinalPrompt },
           ...processedUrls.map(url => ({ type: 'image_url', image_url: { url } })),
         ]
 
-        const body = {
+        const body: any = {
           model,
           messages: [{ role: 'user', content }],
+        }
+
+        // 添加质量参数（如果中转站支持）
+        if (qualityParams.size) {
+          body.size = qualityParams.size
+        }
+        if (qualityParams.quality) {
+          body.quality = qualityParams.quality
         }
 
         if (debug) logger.info('多图聊天API请求体:', JSON.stringify(body, null, 2))
@@ -1471,3 +1560,4 @@ export async function apply(ctx: Context, cfg: any) {
     }
   })
 }
+
