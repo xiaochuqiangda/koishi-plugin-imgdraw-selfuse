@@ -268,60 +268,185 @@ export async function apply(ctx: Context, cfg: any) {
     return cleaned
   }
 
-  function extractSizeFromPrompt(prompt: string): string {
-    if (!prompt) return '1024x1024'
-    const lower = prompt.toLowerCase()
-    const landscapeKeywords = ['横屏', 'landscape', '宽屏', '16:9', '16比9', '16比 9', '16/9']
-    for (const kw of landscapeKeywords) {
-      if (lower.includes(kw)) return '1792x1024'
-    }
-    const portraitKeywords = ['竖屏', 'portrait', '长图', '9:16', '9比16', '9比 16', '9/16']
-    for (const kw of portraitKeywords) {
-      if (lower.includes(kw)) return '1024x1792'
-    }
-    const squareKeywords = ['方图', 'square', '1:1', '1比1', '1比 1']
-    for (const kw of squareKeywords) {
-      if (lower.includes(kw)) return '1024x1024'
-    }
-    return '1024x1024'
+    // ========== GPT-image-2 尺寸约束工具 ==========
+  const MAX_SIDE = 3840
+  const MIN_SIDE = 256
+  const MAX_PIXELS = 8294400
+  const MIN_PIXELS = 655360
+
+  function roundTo16(n: number): number {
+    return Math.round(n / 16) * 16
   }
 
-  function extractQualityParams(prompt: string): { cleanedPrompt: string; params: { size?: string; quality?: string } } {
-    if (!prompt) return { cleanedPrompt: prompt, params: {} }
+  /** 确保尺寸满足 GPT-image-2 所有硬性约束 */
+  function ensureValidSize(width: number, height: number): string {
+    let w = Math.max(MIN_SIDE, Math.min(MAX_SIDE, roundTo16(width)))
+    let h = Math.max(MIN_SIDE, Math.min(MAX_SIDE, roundTo16(height)))
+
+    // 限制最大宽高比 3:1
+    if (w / h > 3) w = roundTo16(h * 3)
+    if (h / w > 3) h = roundTo16(w * 3)
+
+    // 限制总像素数
+    let pixels = w * h
+    if (pixels > MAX_PIXELS) {
+      const scale = Math.sqrt(MAX_PIXELS / pixels)
+      w = Math.floor(w * scale / 16) * 16
+      h = Math.floor(h * scale / 16) * 16
+    }
+    if (pixels < MIN_PIXELS) {
+      const scale = Math.sqrt(MIN_PIXELS / pixels)
+      w = Math.ceil(w * scale / 16) * 16
+      h = Math.ceil(h * scale / 16) * 16
+    }
+
+    return `${w}x${h}`
+  }
+
+  async function getImageDimensionsFromUrl(url: string): Promise<{ width: number; height: number } | null> {
+    if (!sharp || !url) return null
+    try {
+      let buffer: Buffer
+      if (url.startsWith('data:image/')) {
+        const base64Data = url.split(',')[1]
+        buffer = Buffer.from(base64Data, 'base64')
+      } else if (/^https?:\/\//.test(url)) {
+        const res = await axios.get(url, { responseType: 'arraybuffer', timeout: 30000 })
+        buffer = Buffer.from(res.data as ArrayBuffer)
+      } else {
+        return null
+      }
+      const metadata = await sharp(buffer).metadata()
+      if (metadata.width && metadata.height) {
+        return { width: metadata.width, height: metadata.height }
+      }
+      return null
+    } catch (e) {
+      if (debug) logger.warn('获取图片尺寸失败:', (e as any).message)
+      return null
+    }
+  }
+
+  // 无关键词时：最短边 1024，保持原比例，snap 到 16 的倍数
+  function computeDynamicSize(refWidth: number, refHeight: number): string {
+    const ratio = refWidth / refHeight
+    if (ratio >= 1) {
+      // 横图/方图：高固定 1024，宽按比例
+      return ensureValidSize(1024 * ratio, 1024)
+    } else {
+      // 竖图：宽固定 1024，高按比例
+      return ensureValidSize(1024, 1024 / ratio)
+    }
+  }
+
+  // 4K 时：长边固定 3840，另一边按比例，且满足所有约束
+  function compute4KSize(refWidth: number, refHeight: number): string {
+    if (refWidth >= refHeight) {
+      // 横图/方图：宽 3840
+      return ensureValidSize(3840, 3840 * refHeight / refWidth)
+    } else {
+      // 竖图：高 3840
+      return ensureValidSize(3840 * refWidth / refHeight, 3840)
+    }
+  }
+
+  async function resolveGenerationParams(
+    prompt: string,
+    referenceImageUrl?: string | string[],
+  ): Promise<{ cleanedPrompt: string; size: string; quality?: string }> {
+    if (!prompt) return { cleanedPrompt: prompt || '', size: '1024x1024' }
 
     let cleaned = prompt
-    const params: { size?: string; quality?: string } = {}
+    const lower = prompt.toLowerCase()
+    let quality: string | undefined
 
+    // 检测 4k
     const fourKReg = /4\s*k/gi
-    if (fourKReg.test(prompt)) {
-      params.size = '3840x2160'
-      cleaned = cleaned.replace(fourKReg, '').trim()
-      if (debug) logger.info('检测到 4K 关键词，设置 size: 3840x2160')
+    const has4K = fourKReg.test(prompt)
+    if (has4K) cleaned = cleaned.replace(fourKReg, '').trim()
+
+    // 检测方向关键词
+    const landscapeKeywords = ['横屏', 'landscape', '宽屏', '16:9', '16比9', '16比 9', '16/9']
+    const portraitKeywords = ['竖屏', 'portrait', '长图', '9:16', '9比16', '9比 16', '9/16']
+    const squareKeywords = ['方图', 'square', '1:1', '1比1', '1比 1']
+
+    const isLandscape = landscapeKeywords.some(kw => lower.includes(kw))
+    const isPortrait = portraitKeywords.some(kw => lower.includes(kw))
+    const isSquare = squareKeywords.some(kw => lower.includes(kw))
+
+    // 清理方向关键词，避免传给模型
+    for (const kw of [...landscapeKeywords, ...portraitKeywords, ...squareKeywords]) {
+      const reg = new RegExp(kw.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'gi')
+      cleaned = cleaned.replace(reg, ' ')
     }
 
-    if (!params.size) {
-      const customSizeReg = /(\d{3,4})\s*[xX×]\s*(\d{3,4})/
-      const customMatch = prompt.match(customSizeReg)
-      if (customMatch) {
-        params.size = `${customMatch[1]}x${customMatch[2]}`
-        cleaned = cleaned.replace(customMatch[0], '').trim()
-        if (debug) logger.info(`检测到自定义分辨率，设置 size: ${params.size}`)
-      }
-    }
-
+    // 检测质量关键词
     const qualityKeywords = ['高质量', '高清', 'high quality', 'best quality', '超高质量']
     for (const kw of qualityKeywords) {
       const reg = new RegExp(kw.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'gi')
       if (reg.test(prompt)) {
-        params.quality = 'high'
+        quality = 'high'
         cleaned = cleaned.replace(reg, '').trim()
         if (debug) logger.info(`检测到质量关键词 "${kw}"，设置 quality: high`)
         break
       }
     }
 
+    // 检测并修正自定义尺寸
+    let customSize: string | undefined
+    const customSizeReg = /(\d{3,4})\s*[xX×]\s*(\d{3,4})/
+    const customMatch = prompt.match(customSizeReg)
+    if (customMatch) {
+      const w = parseInt(customMatch[1])
+      const h = parseInt(customMatch[2])
+      customSize = ensureValidSize(w, h)
+      cleaned = cleaned.replace(customMatch[0], '').trim()
+      if (debug) logger.info(`检测到自定义分辨率，修正后 size: ${customSize}`)
+    }
+
     cleaned = cleaned.replace(/\s+/g, ' ').trim()
-    return { cleanedPrompt: cleaned, params }
+
+    // 获取参考图尺寸（用于 4K 无方向 / 动态计算）
+    let dims: { width: number; height: number } | null = null
+    if (referenceImageUrl) {
+      const refUrl = Array.isArray(referenceImageUrl) ? referenceImageUrl[0] : referenceImageUrl
+      dims = await getImageDimensionsFromUrl(refUrl)
+      if (debug && dims) logger.info(`参考图尺寸: ${dims.width}x${dims.height}`)
+    }
+
+    let size: string
+
+    if (customSize) {
+      size = customSize
+    } else if (isLandscape) {
+      size = has4K ? ensureValidSize(3840, 2160) : '1792x1024'
+      if (debug) logger.info(`横屏${has4K ? ' 4K' : ''}，size: ${size}`)
+    } else if (isPortrait) {
+      size = has4K ? ensureValidSize(2160, 3840) : '1024x1792'
+      if (debug) logger.info(`竖屏${has4K ? ' 4K' : ''}，size: ${size}`)
+    } else if (isSquare) {
+      size = has4K ? ensureValidSize(2880, 2880) : '1024x1024'
+      if (debug) logger.info(`方图${has4K ? ' 4K' : ''}，size: ${size}`)
+    } else if (has4K) {
+      // 4K + 未指定方向：按参考图比例，长边 3840
+      if (dims) {
+        size = compute4KSize(dims.width, dims.height)
+        if (debug) logger.info(`4K + 参考图 ${dims.width}x${dims.height}，size: ${size}`)
+      } else {
+        size = ensureValidSize(3840, 2160)
+        if (debug) logger.info(`4K 无参考图，默认 size: ${size}`)
+      }
+    } else {
+      // 无任何关键词：按参考图动态计算，最短边 1024
+      if (dims) {
+        size = computeDynamicSize(dims.width, dims.height)
+        if (debug) logger.info(`动态 size (参考图 ${dims.width}x${dims.height}): ${size}`)
+      } else {
+        size = '1024x1024'
+      }
+    }
+
+    return { cleanedPrompt: cleaned, size, quality }
   }
 
   function getImageUrlFromContent(text: string): string | null {
@@ -668,22 +793,17 @@ export async function apply(ctx: Context, cfg: any) {
     const url = api.baseUrl
 
     if (isImagesApi(url)) {
-      const detectedSize = extractSizeFromPrompt(prompt)
-      const { cleanedPrompt, params: qualityParams } = extractQualityParams(prompt)
-
-      if (debug && detectedSize !== '1024x1024') {
-        logger.info(`检测到尺寸关键词，使用 size: ${detectedSize}`)
-      }
+      const { cleanedPrompt, size, quality } = await resolveGenerationParams(prompt, imageUrl)
 
       const body: any = {
         model,
         prompt: cleanedPrompt,
         n: 1,
-        size: qualityParams.size || detectedSize,
+        size,
       }
 
-      if (qualityParams.quality) {
-        body.quality = qualityParams.quality
+      if (quality) {
+        body.quality = quality
       }
 
       // 图生图：支持单张或多张参考图
@@ -743,7 +863,7 @@ export async function apply(ctx: Context, cfg: any) {
       }
 
     } else if (isChatApi(url)) {
-      const { cleanedPrompt, params: qualityParams } = extractQualityParams(prompt)
+      const { cleanedPrompt, size, quality } = await resolveGenerationParams(prompt, imageUrl)
 
       const content: any[] = [
         { type: 'text', text: cleanedPrompt },
@@ -771,8 +891,8 @@ export async function apply(ctx: Context, cfg: any) {
         messages: [{ role: 'user', content }],
       }
 
-      if (qualityParams.size) body.size = qualityParams.size
-      if (qualityParams.quality) body.quality = qualityParams.quality
+      if (size) body.size = size
+      if (quality) body.quality = quality
 
       if (debug) logger.info('聊天API请求体:', JSON.stringify(body, null, 2))
 
@@ -805,17 +925,16 @@ export async function apply(ctx: Context, cfg: any) {
 
     } else {
       logger.warn(`未知的 API 端点: ${url}，将按图像生成格式尝试`)
-      const detectedSize = extractSizeFromPrompt(prompt)
-      const { cleanedPrompt, params: qualityParams } = extractQualityParams(prompt)
+      const { cleanedPrompt, size, quality } = await resolveGenerationParams(prompt, imageUrl)
       const body: any = {
         model,
         prompt: cleanedPrompt,
         n: 1,
-        size: qualityParams.size || detectedSize,
+        size,
       }
 
-      if (qualityParams.quality) {
-        body.quality = qualityParams.quality
+      if (quality) {
+        body.quality = quality
       }
 
       if (imageUrl) {
@@ -927,16 +1046,16 @@ export async function apply(ctx: Context, cfg: any) {
 
       if (isChatApi(url)) {
         // ========== 聊天API：多图用 messages.content 数组 ==========
-        const processedUrls = (await Promise.all(
+        const processedUrls: string[] = (await Promise.all(
           imageUrls.map(url => processImageUrl(url))
-        )).filter((url: any) => url !== null)
+        )).filter((url): url is string => url !== null)
 
         if (processedUrls.length === 0) {
           await safeSend(session, cfg.messages.fail + '（图片处理失败）')
           return
         }
 
-        const { cleanedPrompt: cleanedFinalPrompt, params: qualityParams } = extractQualityParams(finalPrompt)
+        const { cleanedPrompt: cleanedFinalPrompt, size, quality } = await resolveGenerationParams(finalPrompt, processedUrls)
 
         const content: any[] = [
           { type: 'text', text: cleanedFinalPrompt },
@@ -948,8 +1067,8 @@ export async function apply(ctx: Context, cfg: any) {
           messages: [{ role: 'user', content }],
         }
 
-        if (qualityParams.size) body.size = qualityParams.size
-        if (qualityParams.quality) body.quality = qualityParams.quality
+        if (size) body.size = size
+        if (quality) body.quality = quality
 
         if (debug) logger.info('多图聊天API请求体:', JSON.stringify(body, null, 2))
 
@@ -985,9 +1104,9 @@ export async function apply(ctx: Context, cfg: any) {
 
       } else {
         // ========== 图像API：多图用 images 数组 ==========
-        const processedUrls = (await Promise.all(
+        const processedUrls: string[] = (await Promise.all(
           imageUrls.map(url => processImageUrl(url, true))
-        )).filter((url: any) => url !== null)
+        )).filter((url): url is string => url !== null)
 
         if (processedUrls.length === 0) {
           await safeSend(session, cfg.messages.fail + '（图片处理失败）')
@@ -996,18 +1115,17 @@ export async function apply(ctx: Context, cfg: any) {
 
         if (debug) logger.info(`图像API多图模式: ${processedUrls.length} 张参考图`)
 
-        const { cleanedPrompt: cleanedFinalPrompt, params: qualityParams } = extractQualityParams(finalPrompt)
-        const detectedSize = extractSizeFromPrompt(cleanedFinalPrompt)
+        const { cleanedPrompt: cleanedFinalPrompt, size, quality } = await resolveGenerationParams(finalPrompt, processedUrls)
 
         const body: any = {
           model,
           prompt: cleanedFinalPrompt,
           n: 1,
-          size: qualityParams.size || detectedSize,
+          size,
         }
 
-        if (qualityParams.quality) {
-          body.quality = qualityParams.quality
+        if (quality) {
+          body.quality = quality
         }
 
         // 多图用 images 数组
